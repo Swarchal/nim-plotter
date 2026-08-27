@@ -1,0 +1,8 @@
+nimcache/
+/plotter
+*.exe
+tests/t*
+!tests/t*.nim
+examples/out/
+examples/build
+examples/docimages
