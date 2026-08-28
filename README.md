@@ -162,6 +162,25 @@ let df = toDataFrame(table)             # Table[string, seq[T]]
 let c  = chart("https://…/cars.json")   # fetched by the renderer, not inlined
 ```
 
+[racoon](https://github.com/Swarchal/Racoon) DataFrames come in through
+`plotter/racoon`, which is a separate import because racoon is not a dependency
+of this package:
+
+```nim
+import plotter
+import plotter/racoon                   # adds toDataFrame(racoon.DataFrame)
+import racoon
+
+let df = readFile("cars.csv").toDataFrame()      # racoon: load, filter, group
+df[df["mpg"] > 20].toDataFrame().chart()         # ... then over to plotter
+  .markPoint().encode(x="hp:Q", y="mpg:Q")
+```
+
+Racoon's missing cells become nulls, which is what Vega-Lite's invalid-data
+handling expects; its int columns widen to float, since a `Value` has one
+numeric kind. Both libraries can be imported unqualified — only the bare type
+names `Value` and `DataFrame` need qualifying.
+
 ## Encodings
 
 Channel arguments take a shorthand string or a constructor — they are the same
@@ -297,6 +316,7 @@ field never blocks anything:
 nimble test        # the full suite
 nimble examples    # render examples/gallery.nim to examples/out/
 nimble docimages   # re-render the images in this README
+nimble racoontest  # the racoon bridge (RACOON_PATH=… if not installed)
 ```
 
 `examples` and `docimages` need `vl-convert` on PATH. The quickest way to get
