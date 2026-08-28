@@ -155,6 +155,152 @@ macro genChannelCtors(): untyped =
 
 genChannelCtors()
 
+# --------------------------------------------------- chainable modifiers ----
+# Altair 5's `alt.X("a:Q").scale(zero = false).axis(grid = false)`. Each of
+# these takes an `Encoding` as its first parameter and returns a modified
+# copy, so UFCS flattens what would otherwise be constructors nested inside a
+# keyword argument. The `string` -> `Encoding` converter fires on a dot-call
+# receiver too, which is why `"a:Q".scale(...)` needs no `X(...)` wrapper.
+#
+# None of these may ever be overloaded on `string`: that is exactly what
+# `shorthand.nim` says would destroy `toEncoding` for the whole library, and
+# the converter is what makes the bare-string head of the chain work.
+#
+# Every setter *folds* its arguments into what the encoding already carries,
+# so `.scale(zero = false).scale(scheme = "viridis")` keeps both keys. The
+# exceptions are `sort` and `stack`, which name a single spec key and so
+# replace it.
+
+proc mergeRaw(dst: var JsonNode, src: JsonNode) =
+  ## Later `raw` keys win, and the result is a copy — `raw` is a ref, and
+  ## every other builder here has value semantics.
+  if src == nil: return
+  if dst == nil or dst.kind != JObject or src.kind != JObject:
+    dst = copy(src)
+    return
+  var merged = copy(dst)
+  for key, node in src: merged[key] = copy(node)
+  dst = merged
+
+proc scale*(e: Encoding, scaleType = scAuto, domain: seq[Value] = @[],
+            domainMin = Opt[float](), domainMax = Opt[float](),
+            range: seq[Value] = @[], scheme = "", zero = Opt[bool](),
+            nice = Opt[bool](), reverse = Opt[bool](), clamp = Opt[bool](),
+            padding = Opt[float](), exponent = Opt[float](),
+            base = Opt[float](), raw: JsonNode = nil): Encoding =
+  ## `"x:Q".scale(zero = false)` — the chained spelling of
+  ## `X("x:Q", scale = Scale(zero = false))`.
+  result = e
+  result.scale.isSet = true
+  if scaleType != scAuto: result.scale.scaleType = scaleType
+  if domain.len > 0: result.scale.domain = domain
+  if domainMin.isSome: result.scale.domainMin = domainMin
+  if domainMax.isSome: result.scale.domainMax = domainMax
+  if range.len > 0: result.scale.range = range
+  if scheme.len > 0: result.scale.scheme = scheme
+  if zero.isSome: result.scale.zero = zero
+  if nice.isSome: result.scale.nice = nice
+  if reverse.isSome: result.scale.reverse = reverse
+  if clamp.isSome: result.scale.clamp = clamp
+  if padding.isSome: result.scale.padding = padding
+  if exponent.isSome: result.scale.exponent = exponent
+  if base.isSome: result.scale.base = base
+  mergeRaw(result.scale.raw, raw)
+
+proc axis*(e: Encoding, title = Opt[string](), hideTitle = false, format = "",
+           labelAngle = Opt[float](), labelFontSize = Opt[float](),
+           titleFontSize = Opt[float](), grid = Opt[bool](),
+           ticks = Opt[bool](), labels = Opt[bool](),
+           values: seq[Value] = @[], orient = "", tickCount = Opt[int](),
+           hidden = false, raw: JsonNode = nil): Encoding =
+  ## `hidden = true` is `"axis": null` — the chained `axis = noAxis()`.
+  ## `title = ""` is an empty axis title, `hideTitle = true` is
+  ## `"title": null`, and saying neither leaves the key out.
+  result = e
+  result.axis.isSet = true
+  if hidden: result.axis.hidden = true
+  if title.isSome: result.axis.title = title
+  if hideTitle: result.axis.hideTitle = true
+  if format.len > 0: result.axis.format = format
+  if labelAngle.isSome: result.axis.labelAngle = labelAngle
+  if labelFontSize.isSome: result.axis.labelFontSize = labelFontSize
+  if titleFontSize.isSome: result.axis.titleFontSize = titleFontSize
+  if grid.isSome: result.axis.grid = grid
+  if ticks.isSome: result.axis.ticks = ticks
+  if labels.isSome: result.axis.labels = labels
+  if values.len > 0: result.axis.values = values
+  if orient.len > 0: result.axis.orient = orient
+  if tickCount.isSome: result.axis.tickCount = tickCount
+  mergeRaw(result.axis.raw, raw)
+
+proc legend*(e: Encoding, title = Opt[string](), hideTitle = false,
+             orient = "", direction = "", columns = Opt[int](),
+             symbolType = "", format = "", hidden = false,
+             raw: JsonNode = nil): Encoding =
+  ## `hidden = true` is `"legend": null` — the chained `legend = noLegend()`.
+  result = e
+  result.legend.isSet = true
+  if hidden: result.legend.hidden = true
+  if title.isSome: result.legend.title = title
+  if hideTitle: result.legend.hideTitle = true
+  if orient.len > 0: result.legend.orient = orient
+  if direction.len > 0: result.legend.direction = direction
+  if columns.isSome: result.legend.columns = columns
+  if symbolType.len > 0: result.legend.symbolType = symbolType
+  if format.len > 0: result.legend.format = format
+  mergeRaw(result.legend.raw, raw)
+
+proc title*(e: Encoding, t: string): Encoding =
+  ## The channel's own title. `""` is an empty title, which is a different
+  ## spec from an absent one — and from `noTitle()`, which is `null`.
+  result = e
+  result.title = opt(t)
+  result.hideTitle = false
+
+proc noTitle*(e: Encoding): Encoding =
+  ## `"title": null` — no label for this channel at all.
+  result = e
+  result.title = unset[string]()
+  result.hideTitle = true
+
+proc bin*(e: Encoding, maxbins = Opt[int](), step = Opt[float](),
+          extent: seq[float] = @[], nice = Opt[bool](), binned = false,
+          raw: JsonNode = nil): Encoding =
+  ## `.bin()` on its own is `bin = true`; `binned = true` says the data
+  ## arrives already binned.
+  result = e
+  result.bin.enabled = true
+  if binned: result.bin.binned = true
+  if maxbins.isSome: result.bin.maxbins = maxbins
+  if step.isSome: result.bin.step = step
+  if extent.len > 0: result.bin.extent = extent
+  if nice.isSome: result.bin.nice = nice
+  mergeRaw(result.bin.raw, raw)
+
+proc sort*(e: Encoding, order: string): Encoding =
+  ## `"ascending"`, `"descending"`, `"null"` (leave the data order alone),
+  ## or a channel/field name with an optional `-` for descending — the same
+  ## strings `sort =` takes. Replaces any previous sort.
+  result = e
+  result.sort = parseSort(order)
+
+proc sort*(e: Encoding, values: seq[Value]): Encoding =
+  ## An explicit domain order: `.sort(vals("Jan", "Feb", "Mar"))`.
+  result = e
+  result.sort = SortDef(kind: sortArray, values: values)
+
+proc sort*(e: Encoding, def: SortDef): Encoding =
+  ## For a sort this library's strings cannot spell — sorting by another
+  ## field under an aggregate, say.
+  result = e
+  result.sort = def
+
+proc stack*(e: Encoding, how: string): Encoding =
+  ## `"zero"`, `"normalize"`, `"center"` or `"none"`. `"none"` emits
+  ## `"stack": null`, which is not the same as leaving it unset.
+  result = e
+  result.stack = parseStack(how)
+
 # ----------------------------------------------------------------- chart ----
 
 proc chart*(data: DataFrame, title = "", description = "",

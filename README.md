@@ -179,6 +179,34 @@ Channel arguments take a shorthand string or a constructor — they are the same
 the data. Multi-field channels have their own builders, since Nim cannot convert
 inside a list literal: `.tooltips("Name:N", "Origin:Q")`.
 
+Anything beyond the shorthand can be chained instead of nested, as in Altair 5 —
+`scale`, `axis`, `legend`, `title`, `noTitle`, `bin`, `sort` and `stack` all take
+an encoding and return a modified copy. The string converter reaches through a
+dot call, so the bare shorthand is the head of the chain and no `X(...)` wrapper
+is needed:
+
+```nim
+.encode(x="Horsepower:Q".scale(zero=false).axis(grid=false, labelAngle= -45),
+        y="Miles_per_Gallon:Q",
+        color="Origin:N".legend(orient="bottom"))
+```
+
+Both spellings mean the same thing and mix freely; repeated calls to one setter
+merge, so `.scale(zero=false).scale(scheme="viridis")` keeps both keys. Use
+`.axis(hidden=true)` / `.legend(hidden=true)` for the chained form of
+`axis=noAxis()`.
+
+Because every builder takes what it modifies first, the receiver-first spelling
+works throughout — including on the way in and out:
+
+```nim
+df.chart(title="Cars").markPoint()      # chart(data: DataFrame)
+people.toDataFrame().chart()            # the object/tuple adapter
+"cars.csv".readCsv().chart().markBar()  # read, frame and chart in one line
+base.layer(rule, labels)                # varargs builders take a receiver
+c.saveJson("spec.json")                 # and the render side
+```
+
 ## Composition
 
 Altair's operators, and named equivalents for anyone who finds `&` cryptic:
