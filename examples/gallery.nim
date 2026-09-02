@@ -84,6 +84,24 @@ proc weather(): DataFrame =
                 (if city == "Lisbon": 6.0 elif city == "Oslo": -6.0 else: 0.0))
   dataFrame(col("city", cities), col("month", months), col("temp", temps))
 
+proc plate(nRows, nCols: int): DataFrame =
+  ## A microplate laid out tidily: `nRows` rows (A, B, C, …) by `nCols`
+  ## columns (1, 2, 3, …) — 8x12 for a 96-well plate, 16x24 for a 384. The
+  ## value is a smooth gradient with a mild plate-edge effect, so the grid
+  ## looks like real assay readout rather than noise.
+  const rowNames = "ABCDEFGHIJKLMNOP"
+  var rows: seq[string]
+  var cols: seq[int]
+  var signal: seq[float]
+  for r in 0 ..< nRows:
+    for c in 0 ..< nCols:
+      rows.add($rowNames[r])
+      cols.add(c + 1)
+      let edge = min(min(r, nRows - 1 - r), min(c, nCols - 1 - c)).float
+      signal.add(40.0 + 3.0 * c.float + 2.0 * r.float + 8.0 * edge +
+                 5.0 * sin(r.float / 2.0) * cos(c.float / 3.0))
+  dataFrame(col("row", rows), col("col", cols), col("signal", signal))
+
 proc galleryCharts*(): seq[(string, Chart)] =
   let carsDf = cars()
   let stocksDf = stocks()
@@ -138,6 +156,30 @@ proc galleryCharts*(): seq[(string, Chart)] =
             y = "city:N",
             color = Color("temp:Q", scale = Scale(scheme = "viridis")))
     .properties(height = 200)))
+
+  result.add(("plate", chart(plate(16, 24), title = "384-well plate")
+    .markRect(stroke = "white", strokeWidth = 0.5)
+    .encode(
+      x = X("col:O",
+            axis = Axis(orient = "top", labelAngle = 0, title = ""),
+            scale = Scale(padding = 0)),
+      y = Y("row:N", axis = Axis(title = ""), scale = Scale(padding = 0)),
+      color = Color("signal:Q", scale = Scale(scheme = "viridis"),
+                    legend = noLegend()))
+    .properties(width = 480, height = 320)
+    .configureView(stroke = "#999999")))
+
+  result.add(("plate-96", chart(plate(8, 12), title = "96-well plate")
+    .markCircle(size = 1100, stroke = "#999999", strokeWidth = 0.5)
+    .encode(
+      x = X("col:O",
+            axis = Axis(orient = "top", labelAngle = 0, title = ""),
+            scale = Scale(padding = 20)),
+      y = Y("row:N", axis = Axis(title = ""), scale = Scale(padding = 20)),
+      color = Color("signal:Q", scale = Scale(scheme = "viridis"),
+                    legend = noLegend()))
+    .properties(width = 520, height = 360)
+    .configureView(stroke = "#999999")))
 
   result.add(("filtered", chart(carsDf, title = "Efficient cars only")
     .transformFilter(expr(datum.Miles_per_Gallon > 28))
