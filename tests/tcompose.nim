@@ -37,6 +37,24 @@ suite "layering":
     check spec["layer"][0]["data"]["values"].len == 2
     check spec["layer"][1]["data"]["values"].len == 1
 
+  test "a nested layer keeps the data its children share":
+    # The inner layer has no data of its own; it hoists its children's.
+    let other = chart(dataFrame(col("date", @[9.0]), col("price", @[9.0])))
+      .encode(x = "date:Q", y = "price:Q")
+    let spec = layer(layer(base.markLine(), base.markPoint()), other.markRule()).toSpec
+    check "data" notin spec
+    check spec["layer"][0]["data"]["values"].len == 2
+    for child in spec["layer"][0]["layer"]:
+      check "data" notin child
+    check spec["layer"][1]["data"]["values"].len == 1
+
+  test "nested layers over one frame hoist it all the way up":
+    let spec = layer(layer(base.markLine(), base.markPoint()), base.markRule()).toSpec
+    check spec["data"]["values"].len == 2
+    check "data" notin spec["layer"][0]
+    for child in spec["layer"][0]["layer"]:
+      check "data" notin child
+
   test "the layer sizes itself and its children do not":
     let spec = (base.markLine() + base.markPoint()).toSpec
     check spec["width"].getInt == defaultWidth
@@ -97,6 +115,22 @@ suite "faceting":
 
   test "data belongs to the facet, never to the spec inside it":
     let spec = base.markPoint().facet(column = "symbol:N").toSpec
+    check spec["data"]["values"].len == 2
+    check "data" notin spec["spec"]
+
+  test "a faceted layer's shared data moves up to the facet":
+    let spec = (base.markLine() + base.markPoint()).facet(column = "symbol:N").toSpec
+    check spec["data"]["values"].len == 2
+    check spec["facet"]["column"]["type"].getStr == "nominal"
+    check "data" notin spec["spec"]
+    for child in spec["spec"]["layer"]:
+      check "data" notin child
+
+  test "a facet over a layer with data of its own":
+    let spec = layer(Chart().markLine(), Chart().markPoint())
+      .withData(inlineData(df))
+      .facet(column = "symbol:N")
+      .toSpec
     check spec["data"]["values"].len == 2
     check "data" notin spec["spec"]
 

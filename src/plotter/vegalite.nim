@@ -392,15 +392,27 @@ proc toJson(t: Transform): JsonNode =
     result.put("bandwidth", t.bandwidth)
     if t.extent.len > 0: result["extent"] = toJson(t.extent)
 
+proc effectiveData(c: Chart): DataSource
+
 proc commonData(children: seq[Chart]): DataSource =
   ## The data every child shares, if they all share one — which lets a layer
   ## of three marks over the same frame inline the rows once instead of
   ## three times.
   if children.len == 0: return DataSource()
-  result = children[0].data
+  result = effectiveData(children[0])
   if result.kind == dsNone: return DataSource()
   for c in children[1 .. ^1]:
-    if c.data != result: return DataSource()
+    if effectiveData(c) != result: return DataSource()
+
+proc effectiveData(c: Chart): DataSource =
+  ## The data `c` carries in the emitted spec: its own, or else what its
+  ## children share, hoisted up to it. A nested composite has no data of its
+  ## own, so comparing bare `.data` would miss what it hoists.
+  if c.data.kind != dsNone: return c.data
+  case c.kind
+  of skLayer, skHConcat, skVConcat: commonData(c.children)
+  of skFacet, skRepeat: commonData(c.spec)
+  of skUnit: DataSource()
 
 proc toJson(d: DataSource): JsonNode =
   case d.kind
@@ -421,15 +433,10 @@ proc toNode(c: Chart, topLevel: bool, suppressData = false,
   result.put("description", c.description)
   result.put("title", c.title)
 
-  var ownData = c.data
-  if ownData.kind == dsNone:
-    # A composite has no data of its own; take it from the children, so a
-    # layer over one frame inlines the rows once and a facet holds the data
-    # its sub-plots share.
-    case c.kind
-    of skLayer, skHConcat, skVConcat: ownData = commonData(c.children)
-    of skFacet, skRepeat: ownData = commonData(c.spec)
-    of skUnit: discard
+  # A composite with no data of its own takes it from its children, so a
+  # layer over one frame inlines the rows once and a facet holds the data
+  # its sub-plots share.
+  let ownData = c.effectiveData
   let hoisted = ownData.kind != dsNone and ownData != c.data
   if not suppressData:
     let d = toJson(ownData)
@@ -463,8 +470,9 @@ proc toNode(c: Chart, topLevel: bool, suppressData = false,
       result["height"] = newJInt(c.height)
     var kids = newJArray()
     for child in c.children:
-      kids.add(toNode(child, topLevel = false,
-                      suppressData = hoisted or child.data.kind == dsNone,
+      # A child without data of its own is not suppressed unless hoisted:
+      # if it is a composite, it emits what it hoisted from its children.
+      kids.add(toNode(child, topLevel = false, suppressData = hoisted,
                       suppressSize = isLayer))
     result[(case c.kind
             of skLayer: "layer"
